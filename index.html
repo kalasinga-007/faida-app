@@ -3115,23 +3115,29 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
   let _confirmResult      = null;
 
   function _initRecaptcha() {
-    // Always create a fresh verifier — reusing stale ones causes silent hangs
     try {
       if (_recaptchaVerifier) {
         _recaptchaVerifier.clear();
         _recaptchaVerifier = null;
       }
     } catch(e) {}
+
+    // Use normal (visible) reCAPTCHA — much more reliable on mobile than invisible
     _recaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container', {
-      size: 'invisible',
-      callback: function() {},
+      size: 'normal',
+      callback: function() {
+        // reCAPTCHA solved — automatically trigger OTP send
+        document.getElementById('reg-submit-btn').click();
+      },
       'expired-callback': function() {
+        try { _recaptchaVerifier.clear(); } catch(e) {}
         _recaptchaVerifier = null;
+        showToast('Security check expired. Please try again.', 'red');
+        document.getElementById('recaptcha-container').innerHTML = '';
       }
     });
-    // Pre-render so it's ready immediately when user taps Send
     _recaptchaVerifier.render().catch(function(e) {
-      console.warn('reCAPTCHA pre-render failed:', e);
+      console.warn('reCAPTCHA render failed:', e.message);
     });
   }
 
@@ -4485,10 +4491,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     document.querySelectorAll('.auth-sub').forEach(s => s.classList.remove('open'));
     document.getElementById(id).classList.add('open');
     if (id === 'auth-otp') startOtpTimer();
-    // Pre-warm reCAPTCHA when registration screen opens so it's ready
-    if (id === 'auth-register') {
-      setTimeout(function() { try { _initRecaptcha(); } catch(e) {} }, 400);
-    }
+
   }
   function closeAuthSub(id) {
     document.getElementById(id).classList.remove('open');
@@ -4601,34 +4604,28 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     _regPending = { name, phone: '+254' + phone, email, password: pwd, bizName: biz, currency: _regCurrency };
 
     const btn = document.getElementById('reg-submit-btn');
-    btn.innerHTML = '<span class="auth-spinner"></span> Sending code...';
+    btn.innerHTML = '<span class="auth-spinner"></span> Creating account...';
     btn.disabled = true;
 
-    // ── FIREBASE: send real OTP to phone
-    _initRecaptcha();
-    _auth.signInWithPhoneNumber('+254' + phone, _recaptchaVerifier)
-      .then(function(result) {
-        _confirmResult = result;
-        btn.innerHTML = t('regSubmitBtn');
-        btn.disabled = false;
-        document.getElementById('otp-phone-display').textContent = '+254' + phone;
-        document.getElementById('otp-sub-text').textContent = t('otpSubDynamic').replace('{phone}', phone);
-        openAuthSub('auth-otp');
+    // ── FIREBASE: create account directly with email + password (no OTP needed)
+    _auth.createUserWithEmailAndPassword(email, pwd)
+      .then(function(cred) {
+        // Send email verification in background (non-blocking)
+        cred.user.sendEmailVerification().catch(function(){});
+        return completeSetup(cred.user);
       })
       .catch(function(err) {
         btn.innerHTML = t('regSubmitBtn');
         btn.disabled = false;
-        // Clear stale verifier so next attempt gets a fresh one
-        try { if (_recaptchaVerifier) { _recaptchaVerifier.clear(); } } catch(e) {}
-        _recaptchaVerifier = null;
-        const errMsg = err.code === 'auth/invalid-phone-number'   ? 'Invalid phone number format.' :
-                       err.code === 'auth/too-many-requests'      ? 'Too many attempts. Try again in a few minutes.' :
-                       err.code === 'auth/quota-exceeded'         ? 'SMS quota exceeded. Try again later.' :
-                       err.code === 'auth/network-request-failed' ? 'Network error. Check your connection.' :
-                       err.code === 'auth/captcha-check-failed'   ? 'Security check failed. Please try again.' :
-                                                                     'Error (' + err.code + '): ' + err.message;
+        const errMsg = err.code === 'auth/email-already-in-use'
+          ? 'This email is already registered. Please sign in instead.'
+          : err.code === 'auth/weak-password'
+          ? 'Password is too weak. Use at least 8 characters.'
+          : err.code === 'auth/network-request-failed'
+          ? 'Network error. Check your internet connection.'
+          : 'Registration failed: ' + err.message;
         showToast(errMsg, 'red');
-        console.error('Phone auth error:', err.code, err.message);
+        console.error('Registration error:', err.code, err.message);
       });
   }
 
