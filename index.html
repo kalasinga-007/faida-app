@@ -3082,17 +3082,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
   const _auth = firebase.auth();
   const _db   = firebase.firestore();
 
-  // ── Enable offline persistence — app works even with no internet
-  _db.enablePersistence({ synchronizeTabs: true })
-     .catch(function(err) {
-       if (err.code === 'failed-precondition') {
-         // Multiple tabs open — persistence only works in one tab at a time
-         console.warn('Offline persistence unavailable (multiple tabs)');
-       } else if (err.code === 'unimplemented') {
-         // Browser doesn't support it
-         console.warn('Offline persistence not supported in this browser');
-       }
-     });
+  // Offline persistence disabled — enabled later when stable
 
   // ── FIRESTORE SYNC ────────────────────────────────────────
   // Every save also writes to Firestore — fire-and-forget (non-blocking)
@@ -3122,6 +3112,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
   let _fsUnsubscribers = [];
 
   function _fsStartListeners(uid) {
+    try {
     // Clear any existing listeners first
     _fsUnsubscribers.forEach(function(unsub) { try { unsub(); } catch(e) {} });
     _fsUnsubscribers = [];
@@ -3145,7 +3136,6 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
           const fresh = doc.data().items;
           if (!fresh) return;
           item.store(fresh);
-          // Update localStorage cache
           const lsKey = {
             products:'faida-products-v3', sales:'faida-sales-log',
             expenses:'faida-expenses', debts:'faida-debts',
@@ -3153,17 +3143,16 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
             mpesa:'faida-mpesa', goals:'faida-goals', goalTasks:'faida-goal-tasks'
           }[item.key];
           if (lsKey) localStorage.setItem(lsKey, JSON.stringify(fresh));
-          // Re-render active screen quietly
           const active = document.querySelector('.screen.active');
-          if (active) {
-            const id = active.id;
-            if (id === 'dashboard-screen') updateDashboard && updateDashboard();
+          if (active && active.id === 'dashboard-screen') {
+            try { updateDashboard(); } catch(e) {}
           }
         }, function(err) {
           console.warn('Listener error (' + item.key + '):', err.message);
         });
       _fsUnsubscribers.push(unsub);
     });
+    } catch(e) { console.warn('Failed to start listeners:', e.message); }
   }
 
   function _fsStopListeners() {
