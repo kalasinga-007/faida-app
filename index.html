@@ -1381,7 +1381,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
   </div>
   <div class="auth-step-body">
     <div class="otp-info-box" id="otp-info-box">
-      A verification code has been sent to <strong id="otp-phone-display"></strong>. Check your SMS and enter the 6-digit code below. <span style="color:#1E40AF;font-weight:700;" id="otp-demo-hint">Demo: enter 123456</span>
+      A verification code has been sent to <strong id="otp-phone-display"></strong>. Check your SMS and enter the 6-digit code below. 
     </div>
     <div class="otp-grid">
       <input class="otp-box" id="otp1" type="number" maxlength="1" min="0" max="9" oninput="otpInput(this,1)" onkeydown="otpKeydown(event,1)" />
@@ -4607,65 +4607,26 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     _regPending = { name, phone: '+254' + phone, email, password: pwd, bizName: biz, currency: _regCurrency };
 
     const btn = document.getElementById('reg-submit-btn');
-    const rcContainer = document.getElementById('recaptcha-container');
-
-    // ── Step 1: Show reCAPTCHA if not yet solved
-    if (!_recaptchaVerifier) {
-      btn.innerHTML = t('regSubmitBtn');
-      btn.disabled = false;
-      rcContainer.style.display = 'block';
-      rcContainer.style.margin = '12px 0';
-      try {
-        if (_recaptchaVerifier) { _recaptchaVerifier.clear(); _recaptchaVerifier = null; }
-      } catch(e) {}
-      _recaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container', {
-        size: 'normal',
-        callback: function() {
-          // Tick confirmed — auto-trigger OTP send
-          setTimeout(function() { submitRegistration(); }, 200);
-        },
-        'expired-callback': function() {
-          try { _recaptchaVerifier.clear(); } catch(e) {}
-          _recaptchaVerifier = null;
-          rcContainer.style.display = 'none';
-          showToast('Security check expired. Please try again.', 'red');
-        }
-      });
-      _recaptchaVerifier.render().catch(function(e) {
-        console.error('reCAPTCHA render error:', e);
-        showToast('Could not load security check. Check your connection.', 'red');
-      });
-      return;
-    }
-
-    // ── Step 2: reCAPTCHA already solved — send OTP
-    btn.innerHTML = '<span class="auth-spinner"></span> Sending code...';
+    btn.innerHTML = '<span class="auth-spinner"></span> Creating account...';
     btn.disabled = true;
 
-    _auth.signInWithPhoneNumber('+254' + phone, _recaptchaVerifier)
-      .then(function(result) {
-        _confirmResult = result;
-        rcContainer.style.display = 'none';
-        btn.innerHTML = t('regSubmitBtn');
-        btn.disabled = false;
-        document.getElementById('otp-phone-display').textContent = '+254' + phone;
-        document.getElementById('otp-sub-text').textContent = t('otpSubDynamic').replace('{phone}', phone);
-        openAuthSub('auth-otp');
+    // ── FIREBASE: email + password registration
+    // Phone OTP will be enabled once Firebase Blaze plan is active
+    _auth.createUserWithEmailAndPassword(email, pwd)
+      .then(function(cred) {
+        return completeSetup(cred.user);
       })
       .catch(function(err) {
         btn.innerHTML = t('regSubmitBtn');
         btn.disabled = false;
-        try { if (_recaptchaVerifier) { _recaptchaVerifier.clear(); } } catch(e) {}
-        _recaptchaVerifier = null;
-        rcContainer.style.display = 'none';
-        const errMsg = err.code === 'auth/invalid-phone-number'   ? 'Invalid phone number. Use format: 7XXXXXXXX' :
-                       err.code === 'auth/too-many-requests'      ? 'Too many attempts. Wait a few minutes and try again.' :
-                       err.code === 'auth/quota-exceeded'         ? 'SMS quota exceeded. Try again later.' :
-                       err.code === 'auth/network-request-failed' ? 'Network error. Check your connection.' :
-                       err.code === 'auth/captcha-check-failed'   ? 'Security check failed. Please try again.' :
-                                                                     'Error (' + err.code + '): ' + err.message;
+        const errMsg = err.code === 'auth/email-already-in-use'
+          ? 'This email is already registered. Please sign in instead.'
+          : err.code === 'auth/weak-password'
+          ? 'Password too weak. Use at least 8 characters.'
+          : err.code === 'auth/network-request-failed'
+          ? 'Network error. Check your connection.'
+          : 'Registration failed: ' + err.message;
         showToast(errMsg, 'red');
-        console.error('Phone auth error:', err.code, err.message);
       });
   }
 
@@ -5158,21 +5119,21 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
   function verifyPinChangeOtp() {
     const code = [1,2,3,4,5,6].map(i => (document.getElementById('pinotp'+i)||{}).value||'').join('');
     const err = document.getElementById('pin-otp-error');
-    const sw = userSettings.language === 'sw';
-    if (code !== '123456') {
-      err.textContent = t('otpLoginErrIncorrect');
-      err.style.display = 'block';
-      return;
-    }
-    closeModal('pin-otp-modal');
-    setTimeout(() => {
-      _setPinFirst  = '';
-      _setPinBuffer = '';
-      document.getElementById('set-pin-title').textContent = t('changePinTitle');
-      document.getElementById('set-pin-sub').textContent   = t('changePinSub');
-      updateSetPinDots();
-      document.getElementById('set-pin-screen').style.display = 'flex';
-    }, 300);
+    if (code.length < 6) { err.textContent = t('otpLoginErrIncorrect'); err.style.display = 'block'; return; }
+    if (!_confirmResult) { err.textContent = 'Session expired. Please try again.'; err.style.display = 'block'; return; }
+    _confirmResult.confirm(code)
+      .then(function() {
+        closeModal('pin-otp-modal');
+        setTimeout(() => {
+          _setPinFirst  = '';
+          _setPinBuffer = '';
+          document.getElementById('set-pin-title').textContent = t('changePinTitle');
+          document.getElementById('set-pin-sub').textContent   = t('changePinSub');
+          updateSetPinDots();
+          document.getElementById('set-pin-screen').style.display = 'flex';
+        }, 300);
+      })
+      .catch(function() { err.textContent = t('otpLoginErrIncorrect'); err.style.display = 'block'; });
   }
 
   // ════════════════════════════════════════════════════════
@@ -8325,18 +8286,20 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     const code = [1,2,3,4,5,6].map(function(i) {
       var el = document.getElementById('epv'+i); return el ? el.value : '';
     }).join('');
-    if (code !== '123456') {
-      showToast(t('toastEpIncorrectCode'), 'red'); return;
-    }
-    if (type === 'email') {
-      window._epEmailOk = true;
-      var ok = document.getElementById('ep-email-ok'); if (ok) ok.style.display = 'block';
-    } else {
-      window._epPhoneOk = true;
-      var ok = document.getElementById('ep-phone-ok'); if (ok) ok.style.display = 'block';
-    }
-    var ov = document.getElementById('ep-verify-ov'); if (ov) ov.remove();
-    showToast(t('toastEpVerified'), 'green');
+    if (!_confirmResult) { showToast('Session expired. Please try again.', 'red'); return; }
+    _confirmResult.confirm(code)
+      .then(function() {
+        if (type === 'email') {
+          window._epEmailOk = true;
+          var ok = document.getElementById('ep-email-ok'); if (ok) ok.style.display = 'block';
+        } else {
+          window._epPhoneOk = true;
+          var ok = document.getElementById('ep-phone-ok'); if (ok) ok.style.display = 'block';
+        }
+        var ov = document.getElementById('ep-verify-ov'); if (ov) ov.remove();
+        showToast(t('toastEpVerified'), 'green');
+      })
+      .catch(function() { showToast(t('toastEpIncorrectCode'), 'red'); });
   }
 
   // ── PASSWORD CHANGE — PIN REQUIRED ───────────────────────
@@ -9702,7 +9665,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     // OTP screen
     otpTitle: 'Verify Your Number',
     otpSub: 'Enter the 6-digit code sent to your number',
-    otpDemoHint: 'Demo: enter 123456',
+    otpDemoHint: '',
     otpVerifyBtn: 'Verify & Continue',
     otpResendPrefix: 'Resend code in',
     // Reset password screen
@@ -9776,9 +9739,9 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     // OTP info box
     otpInfoSent: 'A verification code has been sent to',
     otpInfoCheck: 'Check your SMS and enter the 6-digit code below.',
-    otpInfoDemo: 'Demo: enter 123456',
+    otpInfoDemo: '',
     otpResendReady: 'Resend code',
-    otpErrIncorrect: 'Incorrect code. Try again. (Demo: enter 123456)',
+    otpErrIncorrect: 'Incorrect code. Please try again.',
     loginErrNotFound: 'Account not found. Please check your phone/email, or create a new account.',
     // Toast / validation — expense
     toastSelectCat: 'Please select a category',
@@ -9960,7 +9923,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     // PIN change modal
     verifyYourNumber: 'Verify Your Number',
     verifyCodeSent: 'Enter the verification code sent to {phone}',
-    verifyCodeInfo: 'A code has been sent to {phone}. Check your SMS. Demo: enter 123456',
+    verifyCodeInfo: 'A code has been sent to {phone}. Check your SMS.',
     verifyBtn: 'Verify & Continue',
     // Product modal button labels
     switchToVariants: 'Switch to Variants →',
@@ -10020,7 +9983,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     epSaveChanges: 'Save Changes',
     // Verify contact overlay
     epVerifyTitle: 'Verify {label}',
-    epVerifyCodeSent: 'Verification code (demo: 123456) sent to ',
+    epVerifyCodeSent: 'Verification code sent to ',
     epConfirmBtn: 'Confirm',
     // Save edit profile toasts
     toastEpSaved: 'Saved: {fields}',
@@ -10527,7 +10490,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     // OTP screen
     otpTitle: 'Thibitisha Nambari Yako',
     otpSub: 'Ingiza msimbo wa tarakimu 6 uliostumwa kwenye nambari yako',
-    otpDemoHint: 'Demo: ingiza 123456',
+    otpDemoHint: '',
     otpVerifyBtn: 'Thibitisha na Uendelee',
     otpResendPrefix: 'Tuma tena msimbo baada ya',
     // Reset password screen
@@ -10601,9 +10564,9 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     // OTP info box
     otpInfoSent: 'Msimbo wa uthibitisho umetumwa kwa',
     otpInfoCheck: 'Angalia SMS yako na uingize msimbo wa tarakimu 6 hapa chini.',
-    otpInfoDemo: 'Demo: ingiza 123456',
+    otpInfoDemo: '',
     otpResendReady: 'Tuma msimbo tena',
-    otpErrIncorrect: 'Msimbo si sahihi. Jaribu tena. (Demo: ingiza 123456)',
+    otpErrIncorrect: 'Msimbo si sahihi. Jaribu tena.',
     loginErrNotFound: 'Akaunti haikupatikana. Angalia simu/barua pepe yako, au fungua akaunti mpya.',
     // Toast / validation — expense
     toastSelectCat: 'Tafadhali chagua aina',
@@ -10785,7 +10748,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     // PIN change modal
     verifyYourNumber: 'Thibitisha Nambari Yako',
     verifyCodeSent: 'Ingiza nambari ya uthibitishaji iliyotumwa kwa {phone}',
-    verifyCodeInfo: 'Msimbo umetumwa kwa {phone}. Angalia SMS yako. Demo: ingiza 123456',
+    verifyCodeInfo: 'Msimbo umetumwa kwa {phone}. Angalia SMS yako.',
     verifyBtn: 'Thibitisha',
     // Product modal button labels
     switchToVariants: 'Badilisha kuwa na Aina →',
@@ -10845,7 +10808,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     epSaveChanges: 'Hifadhi Mabadiliko',
     // Verify contact overlay
     epVerifyTitle: 'Thibitisha {label}',
-    epVerifyCodeSent: 'Nambari ya uthibitisho (demo: 123456) imetumwa kwa ',
+    epVerifyCodeSent: 'Nambari ya uthibitisho imetumwa kwa ',
     epConfirmBtn: 'Thibitisha',
     // Save edit profile toasts
     toastEpSaved: 'Imehifadhiwa: {fields}',
