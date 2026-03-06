@@ -1748,7 +1748,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
         </div>
         <div class="stg-support-text">
           <div class="stg-support-title" id="stg-email-support-title">Email Support</div>
-          <div class="stg-support-sub"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="55262025253a27211533343c31347b363a38">[email&#160;protected]</a> · <span id="stg-email-reply-sub" data-i18n="emailReplySub">Reply within 24 hours</span></div>
+          <div class="stg-support-sub">support@faida.com · <span id="stg-email-reply-sub" data-i18n="emailReplySub">Reply within 24 hours</span></div>
         </div>
         <div style="margin-left:auto;color:var(--gray);">›</div>
       </button>
@@ -1863,7 +1863,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
   <div class="stg-app-info">
     <div class="stg-app-logo">Faida</div>
     <div class="stg-app-ver">v1.0 · Built for Kenya</div>
-    <div style="font-size:12px;color:var(--gray);margin-top:8px;">© 2026 Faida · <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="582b2d2828372a2c183e39313c39763b3735">[email&#160;protected]</a></div>
+    <div style="font-size:12px;color:var(--gray);margin-top:8px;">© 2026 Faida · support@faida.com</div>
   </div>
   </div><!-- /.settings-inner -->
 </div>
@@ -3038,7 +3038,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
       <p style="margin-bottom:14px;"><strong style="color:var(--dark);font-size:13px;">3. User Responsibilities</strong><br>You are responsible for the accuracy of data you enter. Faida is a management tool — always verify totals against your physical records and M-Pesa statements.</p>
       <p style="margin-bottom:14px;"><strong style="color:var(--dark);font-size:13px;">4. Acceptable Use</strong><br>Faida is for legitimate business management only. You agree not to use it for fraudulent, illegal, or harmful purposes.</p>
       <p style="margin-bottom:14px;"><strong style="color:var(--dark);font-size:13px;">5. Service Updates</strong><br>We may update features over time. We will notify you of major changes via the app. Continued use after changes means you accept the updated terms.</p>
-      <p style="margin-bottom:14px;"><strong style="color:var(--dark);font-size:13px;">6. Contact Us</strong><br>For help: <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="bdcec8cdcdd2cfc9fddbdcd4d9dc93ded2d0">[email&#160;protected]</a> · +254 722 550 288 · Mon–Sat 8am–8pm</p>
+      <p style="margin-bottom:14px;"><strong style="color:var(--dark);font-size:13px;">6. Contact Us</strong><br>For help: support@faida.com · +254 722 550 288 · Mon–Sat 8am–8pm</p>
     </div>
     <button class="form-btn" style="background:var(--green);" onclick="closeModal('tc-modal');if(document.getElementById('reg-tc-check'))document.getElementById('reg-tc-check').checked=true;">I Accept These Terms</button>
     <button class="form-btn cancel" onclick="closeModal('tc-modal')" id="tc-close-btn">Close</button>
@@ -3056,7 +3056,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
       <p style="margin-bottom:14px;"><strong style="color:var(--dark);font-size:13px;">Data Security</strong><br>Your data is as secure as your device. We strongly recommend setting a PIN lock within the app (Settings → Change PIN) for additional security.</p>
       <p style="margin-bottom:14px;"><strong style="color:var(--dark);font-size:13px;">Data Sharing</strong><br>We do not sell, share, or rent your personal data to any third parties. Period. Your business information is yours alone.</p>
       <p style="margin-bottom:14px;"><strong style="color:var(--dark);font-size:13px;">Your Rights</strong><br>You can export all your data at any time from Settings → Export My Data. You can delete all data from Settings → Clear All Data. You can delete your entire account from Settings → Delete Account.</p>
-      <p style="margin-bottom:14px;"><strong style="color:var(--dark);font-size:13px;">Questions?</strong><br>Email: <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="afdcdadfdfc0dddbefc9cec6cbce81ccc0c2">[email&#160;protected]</a> · Phone: +254 722 550 288</p>
+      <p style="margin-bottom:14px;"><strong style="color:var(--dark);font-size:13px;">Questions?</strong><br>Email: support@faida.com · Phone: +254 722 550 288</p>
     </div>
     <button class="form-btn" style="background:var(--green);" onclick="closeModal('privacy-modal');if(document.getElementById('reg-tc-check'))document.getElementById('reg-tc-check').checked=true;">I Understand</button>
     <button class="form-btn cancel" onclick="closeModal('privacy-modal')" id="privacy-close-btn">Close</button>
@@ -3881,7 +3881,30 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     if (id === 'goals-screen')     { currentGoalsSearch = ''; const gs = document.getElementById('goals-search'); if(gs) gs.value=''; renderGoals(); checkGoalReminders(); }
     if (id === 'reports-screen')   renderReport();
     if (id === 'settings-screen')  renderSettingsScreen();
+    // ── Push history state so phone back button works
+    history.pushState({ screen: id }, '', '');
   }
+
+  // ── PHONE BACK BUTTON HANDLER ─────────────────────────────
+  window.addEventListener('popstate', function(e) {
+    // If a modal is open, close it first
+    const openModal = document.querySelector('.modal.open');
+    if (openModal) { openModal.classList.remove('open'); history.pushState({}, '', ''); return; }
+
+    // If an auth sub-panel is open, close it
+    const openAuth = document.querySelector('.auth-sub.open');
+    if (openAuth) { openAuth.classList.remove('open'); history.pushState({}, '', ''); return; }
+
+    // If not on dashboard, go to dashboard
+    const dashActive = document.getElementById('dashboard-screen') &&
+                       document.getElementById('dashboard-screen').classList.contains('active');
+    if (!dashActive && currentUser) {
+      showScreen('dashboard-screen');
+      return;
+    }
+
+    // On dashboard — let the browser exit (do nothing, default behaviour)
+  });
 
   // ── EXPENSES ─────────────────────────────────────────────
   let currentExpPeriod  = 'today';
