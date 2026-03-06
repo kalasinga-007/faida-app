@@ -1180,6 +1180,9 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
   <div class="fb-loading-text" id="fb-loading-text">Loading your data...</div>
 </div>
 
+<!-- reCAPTCHA renders here — fixed at bottom so no parent CSS can clip it -->
+<div id="recaptcha-container" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9999;background:#fff;padding:12px;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.18);"></div>
+
 
 <!-- ══════════════════════════════════════════════════════════════
      ── FAIDA AUTH SYSTEM — outside app-shell so position:fixed
