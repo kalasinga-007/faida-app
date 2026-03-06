@@ -4,6 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"/>
   <title>Faida</title>
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#1A7A4A" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Faida" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
   <link rel="icon" id="faida-favicon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231A7A4A'/%3E%3Ctext x='50%25' y='52%25' font-family='Georgia,serif' font-size='38' font-weight='600' fill='white' text-anchor='middle' dominant-baseline='middle'%3EF%3C/text%3E%3C/svg%3E" />
   <script>
     // Render favicon using actual Lexend SemiBold once fonts load
@@ -2801,12 +2809,12 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
       <div class="profit-preview-value" id="vm-profit-value">KES 0</div>
       <div class="profit-preview-pct" id="vm-profit-pct">0% margin</div>
     </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label" data-i18n="vmQtyLabel">Quantity in Stock</label>
+    <div class="form-row" style="align-items:flex-end;">
+      <div class="form-group" style="flex:1.2;">
+        <label class="form-label" data-i18n="vmQtyLabel">Qty in Stock</label>
         <input class="form-input" id="vm-qty" type="number" placeholder="e.g. 40" oninput="updateUnitPreview()" />
       </div>
-      <div class="form-group">
+      <div class="form-group" style="flex:1;">
         <label class="form-label" data-i18n="vmUnitLabel">Unit</label>
         <select class="form-input" id="vm-unit" onchange="updateUnitPreview()">
           <option value="piece">Piece / Pieces</option>
@@ -2847,7 +2855,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
        <span id="vm-unit-preview-text">40 Pieces in stock</span>
     </div>
     <div class="form-group">
-      <label class="form-label" data-i18n="vmReorderLabel">Reorder Level — warn me when stock drops below this</label>
+      <label class="form-label" data-i18n="vmReorderLabel">Reorder Level — alert when stock drops below</label>
       <input class="form-input" id="vm-reorder" type="number" placeholder="e.g. 5" />
     </div>
     <button class="form-btn" onclick="saveVariant()" data-i18n="saveVariant">Save Variant</button>
@@ -5348,6 +5356,15 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     const ts = sessionStorage.getItem('faida-session');
     if (!ts) return false;
     return (Date.now() - parseInt(ts)) < 3600000; // 1 hour
+  }
+
+  // ── REGISTER SERVICE WORKER ─────────────────────────────
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('/sw.js')
+        .then(function(reg) { console.log('SW registered:', reg.scope); })
+        .catch(function(err) { console.warn('SW registration failed:', err); });
+    });
   }
 
   window.onload = function() {
