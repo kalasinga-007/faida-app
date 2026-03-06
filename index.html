@@ -3082,6 +3082,18 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
   const _auth = firebase.auth();
   const _db   = firebase.firestore();
 
+  // ── Enable offline persistence — app works even with no internet
+  _db.enablePersistence({ synchronizeTabs: true })
+     .catch(function(err) {
+       if (err.code === 'failed-precondition') {
+         // Multiple tabs open — persistence only works in one tab at a time
+         console.warn('Offline persistence unavailable (multiple tabs)');
+       } else if (err.code === 'unimplemented') {
+         // Browser doesn't support it
+         console.warn('Offline persistence not supported in this browser');
+       }
+     });
+
   // ── FIRESTORE SYNC ────────────────────────────────────────
   // Every save also writes to Firestore — fire-and-forget (non-blocking)
   // localStorage stays as the fast local cache
@@ -3103,6 +3115,60 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
       result[keys[i]] = doc.exists ? doc.data().items : null;
     });
     return result;
+  }
+
+  // ── REAL-TIME FIRESTORE LISTENERS ───────────────────────
+  // Subscribe to live updates — data refreshes across all devices automatically
+  let _fsUnsubscribers = [];
+
+  function _fsStartListeners(uid) {
+    // Clear any existing listeners first
+    _fsUnsubscribers.forEach(function(unsub) { try { unsub(); } catch(e) {} });
+    _fsUnsubscribers = [];
+
+    const watch = [
+      { key: 'products',  store: function(v) { products      = v; renderProducts && renderProducts(); } },
+      { key: 'sales',     store: function(v) { salesLog      = v; } },
+      { key: 'expenses',  store: function(v) { expensesLog   = v; } },
+      { key: 'debts',     store: function(v) { debtsLog      = v; } },
+      { key: 'customers', store: function(v) { customersList = v; } },
+      { key: 'workers',   store: function(v) { workersList   = v; } },
+      { key: 'mpesa',     store: function(v) { mpesaLog      = v; } },
+      { key: 'goals',     store: function(v) { goalsList     = v; } },
+      { key: 'goalTasks', store: function(v) { goalTasks     = v; } },
+    ];
+
+    watch.forEach(function(item) {
+      const unsub = _db.doc('users/' + uid + '/data/' + item.key)
+        .onSnapshot(function(doc) {
+          if (!doc.exists) return;
+          const fresh = doc.data().items;
+          if (!fresh) return;
+          item.store(fresh);
+          // Update localStorage cache
+          const lsKey = {
+            products:'faida-products-v3', sales:'faida-sales-log',
+            expenses:'faida-expenses', debts:'faida-debts',
+            customers:'faida-customers', workers:'faida-workers',
+            mpesa:'faida-mpesa', goals:'faida-goals', goalTasks:'faida-goal-tasks'
+          }[item.key];
+          if (lsKey) localStorage.setItem(lsKey, JSON.stringify(fresh));
+          // Re-render active screen quietly
+          const active = document.querySelector('.screen.active');
+          if (active) {
+            const id = active.id;
+            if (id === 'dashboard-screen') updateDashboard && updateDashboard();
+          }
+        }, function(err) {
+          console.warn('Listener error (' + item.key + '):', err.message);
+        });
+      _fsUnsubscribers.push(unsub);
+    });
+  }
+
+  function _fsStopListeners() {
+    _fsUnsubscribers.forEach(function(unsub) { try { unsub(); } catch(e) {} });
+    _fsUnsubscribers = [];
   }
 
   // Save user profile to Firestore
@@ -4676,11 +4742,18 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
           btn.innerHTML = t('loginSubmitBtn');
           btn.disabled = false;
           errBox.style.display = 'block';
-          errBox.textContent = (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential')
-            ? t('loginErrNotFound')
-            : err.code === 'auth/too-many-requests'
-            ? 'Too many attempts. Please wait a few minutes.'
-            : t('loginErrNotFound');
+          console.error('Login error:', err.code, err.message);
+          if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+            errBox.textContent = 'Wrong password. Please try again.';
+          } else if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-email') {
+            errBox.textContent = 'No account found with this email. Please register first.';
+          } else if (err.code === 'auth/too-many-requests') {
+            errBox.textContent = 'Too many attempts. Please wait a few minutes.';
+          } else if (err.code === 'auth/network-request-failed') {
+            errBox.textContent = 'Network error. Check your internet connection.';
+          } else {
+            errBox.textContent = 'Sign in failed (' + err.code + '). Please try again.';
+          }
         });
     }
 
@@ -4765,16 +4838,31 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
       // Load all business data from Firestore
       const fsData = await _fsLoadAll(fbUser.uid);
 
-      // Use Firestore data if available, otherwise keep localStorage
-      if (fsData.products   !== null) { products       = fsData.products;   localStorage.setItem('faida-products-v3', JSON.stringify(products)); }
-      if (fsData.sales      !== null) { salesLog       = fsData.sales;      localStorage.setItem('faida-sales-log',   JSON.stringify(salesLog)); }
-      if (fsData.expenses   !== null) { expensesLog    = fsData.expenses;   localStorage.setItem('faida-expenses',    JSON.stringify(expensesLog)); }
-      if (fsData.debts      !== null) { debtsLog       = fsData.debts;      localStorage.setItem('faida-debts',       JSON.stringify(debtsLog)); }
-      if (fsData.customers  !== null) { customersList  = fsData.customers;  localStorage.setItem('faida-customers',   JSON.stringify(customersList)); }
-      if (fsData.workers    !== null) { workersList    = fsData.workers;    localStorage.setItem('faida-workers',     JSON.stringify(workersList)); }
-      if (fsData.mpesa      !== null) { mpesaLog       = fsData.mpesa;      localStorage.setItem('faida-mpesa',       JSON.stringify(mpesaLog)); }
-      if (fsData.goals      !== null) { goalsList      = fsData.goals;      localStorage.setItem('faida-goals',       JSON.stringify(goalsList)); }
-      if (fsData.goalTasks  !== null) { goalTasks      = fsData.goalTasks;  localStorage.setItem('faida-goal-tasks',  JSON.stringify(goalTasks)); }
+      // Track whether Firestore had any data at all
+      const fsHasData = Object.values(fsData).some(function(v) { return v !== null && v.length > 0; });
+
+      if (fsHasData) {
+        // Firestore has data — it's the source of truth
+        if (fsData.products   !== null) { products       = fsData.products;   localStorage.setItem('faida-products-v3', JSON.stringify(products)); }
+        if (fsData.sales      !== null) { salesLog       = fsData.sales;      localStorage.setItem('faida-sales-log',   JSON.stringify(salesLog)); }
+        if (fsData.expenses   !== null) { expensesLog    = fsData.expenses;   localStorage.setItem('faida-expenses',    JSON.stringify(expensesLog)); }
+        if (fsData.debts      !== null) { debtsLog       = fsData.debts;      localStorage.setItem('faida-debts',       JSON.stringify(debtsLog)); }
+        if (fsData.customers  !== null) { customersList  = fsData.customers;  localStorage.setItem('faida-customers',   JSON.stringify(customersList)); }
+        if (fsData.workers    !== null) { workersList    = fsData.workers;    localStorage.setItem('faida-workers',     JSON.stringify(workersList)); }
+        if (fsData.mpesa      !== null) { mpesaLog       = fsData.mpesa;      localStorage.setItem('faida-mpesa',       JSON.stringify(mpesaLog)); }
+        if (fsData.goals      !== null) { goalsList      = fsData.goals;      localStorage.setItem('faida-goals',       JSON.stringify(goalsList)); }
+        if (fsData.goalTasks  !== null) { goalTasks      = fsData.goalTasks;  localStorage.setItem('faida-goal-tasks',  JSON.stringify(goalTasks)); }
+      } else {
+        // Firestore empty — check if localStorage has data to migrate up
+        const lsProducts = JSON.parse(localStorage.getItem('faida-products-v3') || '[]');
+        if (lsProducts.length > 0) {
+          // Migrate localStorage data to Firestore (first-time cloud backup)
+          if (loadText) loadText.textContent = 'Backing up your data to the cloud...';
+          saveProducts(); saveSalesLog(); saveExpenses(); saveDebts();
+          saveCustomers(); saveWorkers(); saveMpesa(); saveGoals(); saveGoalTasks();
+          console.log('Migrated localStorage data to Firestore');
+        }
+      }
 
     } catch(e) {
       console.warn('Firestore load failed, using localStorage:', e.message);
@@ -4785,6 +4873,9 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     sessionStorage.setItem('faida-session', Date.now().toString());
     document.querySelectorAll('.auth-sub').forEach(s => s.classList.remove('open'));
     document.getElementById('auth-welcome').style.display = 'none';
+
+    // ── Start real-time listeners so data stays fresh across devices
+    _fsStartListeners(fbUser.uid);
 
     const storedPin = localStorage.getItem('faida-pin');
     if (!storedPin) { showSetPin(); }
@@ -5234,7 +5325,8 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     hidePinLock();
     document.getElementById('auth-welcome').style.display = '';
     showToast(t('signOut'), 'orange');
-    // ── FIREBASE sign out
+    // ── FIREBASE sign out + stop listeners
+    _fsStopListeners();
     _auth.signOut().catch(function() {});
   }
 
