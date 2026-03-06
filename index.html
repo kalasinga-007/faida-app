@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -4824,6 +4824,10 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
           Object.assign(userSettings, profile.settings);
           localStorage.setItem('faida-settings', JSON.stringify(userSettings));
         }
+        // Restore PIN hash from Firestore to localStorage on this device
+        if (profile.pinHash) {
+          localStorage.setItem('faida-pin', profile.pinHash);
+        }
       } else {
         // No Firestore profile — use localStorage fallback
         const saved = JSON.parse(localStorage.getItem('faida-user') || 'null');
@@ -4878,9 +4882,15 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     _fsStartListeners(fbUser.uid);
 
     const storedPin = localStorage.getItem('faida-pin');
-    if (!storedPin) { showSetPin(); }
-    else if (storedPin === 'skip' || isSessionValid()) { launchApp(); }
-    else { showPinLock(); }
+    if (!storedPin) {
+      // Brand new account — no PIN yet. Ask to set one now (registration flow).
+      showSetPin();
+    } else if (storedPin === 'skip') {
+      launchApp();
+    } else {
+      // PIN exists — always ask for it on a new device/session
+      showPinLock();
+    }
   }
 
   // OTP handling
@@ -5150,7 +5160,13 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
         } else {
           // Confirm
           if (_setPinBuffer === _setPinFirst) {
-            localStorage.setItem('faida-pin', hashPin(_setPinBuffer));
+            const pinHash = hashPin(_setPinBuffer);
+            localStorage.setItem('faida-pin', pinHash);
+            // Save PIN hash to Firestore so it loads on any device
+            const fbUser = _auth.currentUser;
+            if (fbUser) {
+              _db.doc('userProfiles/' + fbUser.uid).set({ pinHash: pinHash }, { merge: true }).catch(function(){});
+            }
             hideSetPin();
             sessionStorage.setItem('faida-session', Date.now().toString());
             launchApp();
@@ -5177,8 +5193,11 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
   }
 
   function skipPin() {
-    // User skips PIN — mark no-pin, go straight to app
     localStorage.setItem('faida-pin', 'skip');
+    const fbUser = _auth.currentUser;
+    if (fbUser) {
+      _db.doc('userProfiles/' + fbUser.uid).set({ pinHash: 'skip' }, { merge: true }).catch(function(){});
+    }
     hideSetPin();
     sessionStorage.setItem('faida-session', Date.now().toString());
     launchApp();
@@ -5299,14 +5318,15 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
   function launchApp() {
     if (!currentUser) return;
     applyDarkMode();
-    showScreen('dashboard-screen');
-    document.getElementById('topbar-biz-name').textContent = '· ' + currentUser.bizName;
-    document.getElementById('hero-biz-name').textContent   = currentUser.bizName;
+    applyTranslations();
+    document.getElementById('topbar-biz-name').textContent = '· ' + (currentUser.bizName || '');
+    document.getElementById('hero-biz-name').textContent   = currentUser.bizName || '';
     document.getElementById('topbar-date').textContent     = new Date().toLocaleDateString(
       userSettings.language === 'sw' ? 'sw-KE' : 'en-KE',
       {weekday:'short',day:'numeric',month:'short'});
+    // Show dashboard screen after translations applied
+    showScreen('dashboard-screen');
     renderSubscriptionBanner();
-    applyTranslations();
     setTimeout(checkGoalReminders, 1200);
   }
 
@@ -5362,9 +5382,8 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
         document.getElementById('auth-welcome').style.display = 'none';
         if (loadOverlay) loadOverlay.classList.add('hidden');
         const storedPin = localStorage.getItem('faida-pin');
-        if (!storedPin)               { showSetPin(); }
-        else if (storedPin === 'skip') { launchApp(); }
-        else                           { showPinLock(); }
+        if (!storedPin || storedPin === 'skip') { launchApp(); }
+        else                                    { showPinLock(); }
         return;
       }
 
