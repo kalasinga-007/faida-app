@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -3115,10 +3115,23 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
   let _confirmResult      = null;
 
   function _initRecaptcha() {
-    if (_recaptchaVerifier) return;
+    // Always create a fresh verifier — reusing stale ones causes silent hangs
+    try {
+      if (_recaptchaVerifier) {
+        _recaptchaVerifier.clear();
+        _recaptchaVerifier = null;
+      }
+    } catch(e) {}
     _recaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container', {
       size: 'invisible',
-      callback: function() {}
+      callback: function() {},
+      'expired-callback': function() {
+        _recaptchaVerifier = null;
+      }
+    });
+    // Pre-render so it's ready immediately when user taps Send
+    _recaptchaVerifier.render().catch(function(e) {
+      console.warn('reCAPTCHA pre-render failed:', e);
     });
   }
 
@@ -4472,6 +4485,10 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     document.querySelectorAll('.auth-sub').forEach(s => s.classList.remove('open'));
     document.getElementById(id).classList.add('open');
     if (id === 'auth-otp') startOtpTimer();
+    // Pre-warm reCAPTCHA when registration screen opens so it's ready
+    if (id === 'auth-register') {
+      setTimeout(function() { try { _initRecaptcha(); } catch(e) {} }, 400);
+    }
   }
   function closeAuthSub(id) {
     document.getElementById(id).classList.remove('open');
@@ -4601,13 +4618,17 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
       .catch(function(err) {
         btn.innerHTML = t('regSubmitBtn');
         btn.disabled = false;
-        // Reset reCAPTCHA so user can try again
+        // Clear stale verifier so next attempt gets a fresh one
+        try { if (_recaptchaVerifier) { _recaptchaVerifier.clear(); } } catch(e) {}
         _recaptchaVerifier = null;
         const errMsg = err.code === 'auth/invalid-phone-number'   ? 'Invalid phone number format.' :
-                       err.code === 'auth/too-many-requests'      ? 'Too many attempts. Please wait a few minutes.' :
+                       err.code === 'auth/too-many-requests'      ? 'Too many attempts. Try again in a few minutes.' :
                        err.code === 'auth/quota-exceeded'         ? 'SMS quota exceeded. Try again later.' :
-                                                                     'Could not send OTP: ' + err.message;
+                       err.code === 'auth/network-request-failed' ? 'Network error. Check your connection.' :
+                       err.code === 'auth/captcha-check-failed'   ? 'Security check failed. Please try again.' :
+                                                                     'Error (' + err.code + '): ' + err.message;
         showToast(errMsg, 'red');
+        console.error('Phone auth error:', err.code, err.message);
       });
   }
 
