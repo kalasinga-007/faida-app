@@ -3106,7 +3106,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
   function _fsSaveProfile(user) {
     const uid = _auth.currentUser && _auth.currentUser.uid;
     if (!uid) return;
-    _db.doc('users/' + uid + '/profile').set(user, { merge: true })
+    _db.doc('userProfiles/' + uid).set(user, { merge: true })
        .catch(function(e) { console.warn('Profile write failed:', e.message); });
   }
 
@@ -3157,7 +3157,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
   function saveSettings() {
     localStorage.setItem('faida-settings', JSON.stringify(userSettings));
     const uid = _auth.currentUser && _auth.currentUser.uid;
-    if (uid) _db.doc('users/' + uid + '/profile').set({ settings: userSettings }, { merge: true }).catch(()=>{});
+    if (uid) _db.doc('userProfiles/' + uid).set({ settings: userSettings }, { merge: true }).catch(()=>{});
   }
   let currentFilter = 'all';
   let currentSearch = '';
@@ -4604,28 +4604,65 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     _regPending = { name, phone: '+254' + phone, email, password: pwd, bizName: biz, currency: _regCurrency };
 
     const btn = document.getElementById('reg-submit-btn');
-    btn.innerHTML = '<span class="auth-spinner"></span> Creating account...';
+    const rcContainer = document.getElementById('recaptcha-container');
+
+    // ── Step 1: Show reCAPTCHA if not yet solved
+    if (!_recaptchaVerifier) {
+      btn.innerHTML = t('regSubmitBtn');
+      btn.disabled = false;
+      rcContainer.style.display = 'block';
+      rcContainer.style.margin = '12px 0';
+      try {
+        if (_recaptchaVerifier) { _recaptchaVerifier.clear(); _recaptchaVerifier = null; }
+      } catch(e) {}
+      _recaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container', {
+        size: 'normal',
+        callback: function() {
+          // Tick confirmed — auto-trigger OTP send
+          setTimeout(function() { submitRegistration(); }, 200);
+        },
+        'expired-callback': function() {
+          try { _recaptchaVerifier.clear(); } catch(e) {}
+          _recaptchaVerifier = null;
+          rcContainer.style.display = 'none';
+          showToast('Security check expired. Please try again.', 'red');
+        }
+      });
+      _recaptchaVerifier.render().catch(function(e) {
+        console.error('reCAPTCHA render error:', e);
+        showToast('Could not load security check. Check your connection.', 'red');
+      });
+      return;
+    }
+
+    // ── Step 2: reCAPTCHA already solved — send OTP
+    btn.innerHTML = '<span class="auth-spinner"></span> Sending code...';
     btn.disabled = true;
 
-    // ── FIREBASE: create account directly with email + password (no OTP needed)
-    _auth.createUserWithEmailAndPassword(email, pwd)
-      .then(function(cred) {
-        // Send email verification in background (non-blocking)
-        cred.user.sendEmailVerification().catch(function(){});
-        return completeSetup(cred.user);
+    _auth.signInWithPhoneNumber('+254' + phone, _recaptchaVerifier)
+      .then(function(result) {
+        _confirmResult = result;
+        rcContainer.style.display = 'none';
+        btn.innerHTML = t('regSubmitBtn');
+        btn.disabled = false;
+        document.getElementById('otp-phone-display').textContent = '+254' + phone;
+        document.getElementById('otp-sub-text').textContent = t('otpSubDynamic').replace('{phone}', phone);
+        openAuthSub('auth-otp');
       })
       .catch(function(err) {
         btn.innerHTML = t('regSubmitBtn');
         btn.disabled = false;
-        const errMsg = err.code === 'auth/email-already-in-use'
-          ? 'This email is already registered. Please sign in instead.'
-          : err.code === 'auth/weak-password'
-          ? 'Password is too weak. Use at least 8 characters.'
-          : err.code === 'auth/network-request-failed'
-          ? 'Network error. Check your internet connection.'
-          : 'Registration failed: ' + err.message;
+        try { if (_recaptchaVerifier) { _recaptchaVerifier.clear(); } } catch(e) {}
+        _recaptchaVerifier = null;
+        rcContainer.style.display = 'none';
+        const errMsg = err.code === 'auth/invalid-phone-number'   ? 'Invalid phone number. Use format: 7XXXXXXXX' :
+                       err.code === 'auth/too-many-requests'      ? 'Too many attempts. Wait a few minutes and try again.' :
+                       err.code === 'auth/quota-exceeded'         ? 'SMS quota exceeded. Try again later.' :
+                       err.code === 'auth/network-request-failed' ? 'Network error. Check your connection.' :
+                       err.code === 'auth/captcha-check-failed'   ? 'Security check failed. Please try again.' :
+                                                                     'Error (' + err.code + '): ' + err.message;
         showToast(errMsg, 'red');
-        console.error('Registration error:', err.code, err.message);
+        console.error('Phone auth error:', err.code, err.message);
       });
   }
 
@@ -4707,7 +4744,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
 
     try {
       // Load profile from Firestore
-      const profileDoc = await _db.doc('users/' + fbUser.uid + '/profile').get();
+      const profileDoc = await _db.doc('userProfiles/' + fbUser.uid).get();
       if (profileDoc.exists) {
         const profile = profileDoc.data();
         currentUser = {
@@ -4882,7 +4919,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
 
     // ── FIREBASE: save profile to Firestore
     if (fbUser) {
-      _db.doc('users/' + uid + '/profile').set({
+      _db.doc('userProfiles/' + uid).set({
         uid:       currentUser.uid,
         fullName:  currentUser.fullName,
         email:     currentUser.email,
@@ -8411,7 +8448,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
     // ── FIREBASE: update profile in Firestore
     const fbUser = _auth.currentUser;
     if (fbUser) {
-      _db.doc('users/' + fbUser.uid + '/profile').set(currentUser, { merge: true }).catch(function(){});
+      _db.doc('userProfiles/' + fbUser.uid).set(currentUser, { merge: true }).catch(function(){});
 
       // Update Firebase Auth email if changed
       if (window._epEmailOk) {
@@ -8493,7 +8530,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
       // Delete all Firestore sub-documents
       const keys = ['products','sales','expenses','debts','customers','workers','mpesa','goals','goalTasks'];
       Promise.all(keys.map(k => _db.doc('users/'+uid+'/data/'+k).delete()))
-        .then(function() { return _db.doc('users/'+uid+'/profile').delete(); })
+        .then(function() { return _db.doc('userProfiles/' + uid).delete(); })
         .then(function() { return fbUser.delete(); })
         .catch(function(e) { console.warn('Firebase delete error:', e); });
     }
