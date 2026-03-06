@@ -3081,6 +3081,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
   firebase.initializeApp(FIREBASE_CONFIG);
   const _auth = firebase.auth();
   const _db   = firebase.firestore();
+  let _registrationInProgress = false; // prevents onAuthStateChanged from racing with completeSetup
 
   // Offline persistence disabled — enabled later when stable
 
@@ -4690,6 +4691,7 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
 
     // ── FIREBASE: email + password registration
     // Phone OTP will be enabled once Firebase Blaze plan is active
+    _registrationInProgress = true;
     _auth.createUserWithEmailAndPassword(email, pwd)
       .then(function(cred) {
         return completeSetup(cred.user);
@@ -5017,6 +5019,8 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
 
     document.querySelectorAll('.auth-sub').forEach(s => s.classList.remove('open'));
     document.getElementById('auth-welcome').style.display = 'none';
+    sessionStorage.setItem('faida-session', Date.now().toString());
+    _registrationInProgress = false;
     const firstName = currentUser.fullName.split(' ')[0];
     showToast(t('toastWelcome').replace('{name}', firstName), 'green');
     showSetPin();
@@ -5362,6 +5366,8 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
         document.getElementById('auth-welcome').style.display = '';
         return;
       }
+      // Registration just completed — completeSetup() handles the UI, don't interfere
+      if (_registrationInProgress) return;
 
       // User is signed in — check if we have a fresh session (e.g. tab refresh)
       const saved = JSON.parse(localStorage.getItem('faida-user') || 'null');
@@ -5379,9 +5385,12 @@ body.dark-mode .auth-input { background:#1E293B; border-color:#2D3B4E; color:#F1
       // Session expired or first load after login — load from Firestore
       if (loadOverlay) loadOverlay.classList.remove('hidden');
       _loadAndLaunch(fbUser).catch(function(e) {
-        console.warn('Load error:', e);
+        console.warn('Load error:', e.message || e);
         if (loadOverlay) loadOverlay.classList.add('hidden');
-        _auth.signOut();
+        // Show auth screen so user is not stuck on blank screen
+        document.getElementById('auth-welcome').style.display = '';
+        showToast('Could not load your account. Please sign in again.', 'red');
+        _auth.signOut().catch(function(){});
       });
     });
   };
@@ -11361,6 +11370,11 @@ service cloud.firestore {
 
     // Each user can only read/write their own data
     match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // User profile (settings, PIN hash, account info)
+    match /userProfiles/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
